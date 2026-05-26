@@ -128,13 +128,88 @@ def get_typestr_from_name(name : str):
     return name.split("'")[0]
 
 # EGearSlotIDEnum::BACK => GearSlotIDEnum.BACK
+_sdk_enum_cache = {}
+
+def get_equivalent_names_from_sdk(enum_type, enum_val):
+    cache_key = (enum_type, enum_val)
+    if cache_key in _sdk_enum_cache:
+        return _sdk_enum_cache[cache_key]
+        
+    from pathlib import Path
+    sdk_dir = Path(r"c:\Dumper-7\5.3.2-3541602+++depot_marvel+S8.0_release-Marvel\CppSDK\SDK")
+    if not sdk_dir.is_dir():
+        return []
+        
+    # Ensure we use the C++ name (which begins with 'E' for enums)
+    cpp_enum_type = enum_type if enum_type.startswith('E') else 'E' + enum_type
+        
+    file_patterns = ["*_structs.hpp", "*.hpp"]
+    import re
+    for pattern in file_patterns:
+        for file_path in sdk_dir.glob(pattern):
+            try:
+                content = file_path.read_text(errors='ignore')
+                enum_pattern = rf'(?:enum class|enum)\s+{cpp_enum_type}\b[^{{]*\{{([^}}]+)\}}'
+                match = re.search(enum_pattern, content)
+                if match:
+                    enum_body = match.group(1)
+                    matches = re.findall(r'\b(\w+)\s*=\s*(-?\d+|0x[0-9a-fA-F]+)', enum_body)
+                    
+                    # Find target value
+                    target_val = None
+                    for m_name, m_val_str in matches:
+                        if m_name == enum_val:
+                            target_val = int(m_val_str, 0)
+                            break
+                            
+                    if target_val is not None:
+                        names = [m_name for m_name, m_val_str in matches if int(m_val_str, 0) == target_val]
+                        _sdk_enum_cache[cache_key] = names
+                        return names
+            except Exception:
+                pass
+    return []
+
 def str_to_enum(val):
     enum_type, enum_val = val.split("::")
     enum_type = enum_type[1:]
-    if enum_type == 'MaterialShadingModel' and enum_val=='MSM_SubsurfaceProfile':
+    
+    if enum_type == 'MaterialShadingModel' and enum_val == 'MSM_SubsurfaceProfile':
         return unreal.MaterialShadingModel.MSM_SUBSURFACE_PROFILE
-    else:
-        return getattr(getattr(unreal, enum_type), enum_val)
+        
+    enum_class = getattr(unreal, enum_type)
+    
+    # 1. Try exact match
+    if hasattr(enum_class, enum_val):
+        return getattr(enum_class, enum_val)
+        
+    # 2. Try uppercase match
+    if hasattr(enum_class, enum_val.upper()):
+        return getattr(enum_class, enum_val.upper())
+        
+    # 3. Try case-insensitive matching against all attributes
+    enum_val_upper = enum_val.upper()
+    for attr in dir(enum_class):
+        if attr.upper() == enum_val_upper:
+            return getattr(enum_class, attr)
+            
+    # 4. Try resolving equivalent names via C++ SDK
+    equivalent_names = get_equivalent_names_from_sdk(enum_type, enum_val)
+    for name in equivalent_names:
+        if name == enum_val:
+            continue # Already tried this exact name in steps 1-3
+        # Try to find a Python enum member matching this equivalent name
+        if hasattr(enum_class, name):
+            return getattr(enum_class, name)
+        if hasattr(enum_class, name.upper()):
+            return getattr(enum_class, name.upper())
+        name_upper = name.upper()
+        for attr in dir(enum_class):
+            if attr.upper() == name_upper:
+                return getattr(enum_class, attr)
+        
+    # Fallback to standard getattr to raise appropriate AttributeError
+    return getattr(enum_class, enum_val)
 
 def try_get_map_value_type(map_obj, key):
     try:
