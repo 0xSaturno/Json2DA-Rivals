@@ -8,8 +8,10 @@ from utils import try_create_asset
 from pathlib import Path
 
 def format_asset_refs_recursive(val):
-    """Recursively formats {ObjectName, ObjectPath} dictionaries to Type'Path' format for Unreal."""
-    if isinstance(val, dict):
+    """Recursively formats {ObjectName, ObjectPath} dictionaries to Type'Path' format for Unreal and handles null/None references."""
+    if val is None:
+        return "None"
+    elif isinstance(val, dict):
         if 'ObjectPath' in val and 'ObjectName' in val:
             obj_name_str = val["ObjectName"]
             obj_path_str = val["ObjectPath"]
