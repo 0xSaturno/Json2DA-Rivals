@@ -50,6 +50,25 @@ def fmodel_dt_json_to_ue_dt_json(json_path):
         base_path = obj_path_str.split('.')[0]
         full_struct_path = f"{base_path}.{struct_name}"
         row_struct = unreal.load_object(None, full_struct_path)
+        
+        if not row_struct:
+            # Fallback: Search the Asset Registry for a User Defined Struct with this name
+            print(f"C++ struct not found at {full_struct_path}. Searching project for a Blueprint Struct named {struct_name}...")
+            asset_reg = unreal.AssetRegistryHelpers.get_asset_registry()
+            # Handle UE5 TopLevelAssetPath requirement
+            try:
+                class_path = unreal.TopLevelAssetPath("/Script/Engine", "UserDefinedStruct")
+                all_assets = asset_reg.get_assets_by_path(unreal.Name("/Game"), recursive=True) # getting all assets and filtering manually is safest across all UE5 versions
+                struct_assets = [a for a in all_assets if a.asset_class_path.asset_name == "UserDefinedStruct"]
+            except Exception:
+                # Fallback for older UE versions
+                struct_assets = asset_reg.get_assets_by_class(unreal.Name("UserDefinedStruct"))
+                
+            for asset_data in struct_assets:
+                if str(asset_data.asset_name) == struct_name:
+                    row_struct = unreal.load_object(None, str(asset_data.object_path))
+                    print(f"Found fallback Blueprint Struct at: {asset_data.object_path}")
+                    break
 
     # Process and format rows recursively
     out_list = []
@@ -73,7 +92,9 @@ def main(json_path):
     row_struct, dt_name, package_path, temp_json = fmodel_dt_json_to_ue_dt_json(json_path)
     
     if not row_struct:
-        unreal.log_error("Could not resolve or load RowStruct for the DataTable.")
+        error_msg = "CRITICAL ERROR: Could not resolve or load RowStruct for the DataTable.\nThe JSON requires a specific RowStruct, but it doesn't exist in your project! You must create this struct first."
+        unreal.log_error(error_msg)
+        print(error_msg)
         return
 
     # Determine asset destination path from package path in JSON
@@ -95,13 +116,18 @@ def main(json_path):
         asset = unreal.load_asset(full_asset_path)
     else:
         print(f"Creating new DataTable with RowStruct: {row_struct.get_name()}")
-        factory = unreal.DataTableFactory()
-        factory.struct = row_struct
-        asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
-        asset = asset_tools.create_asset(dt_name, dest_dir, unreal.DataTable, factory)
+        try:
+            factory = unreal.DataTableFactory()
+            factory.set_editor_property("struct", row_struct)
+            asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
+            asset = asset_tools.create_asset(dt_name, dest_dir, unreal.DataTable, factory)
+        except Exception as e:
+            unreal.log_error(f"EXCEPTION during create_asset: {str(e)}")
+            print(f"EXCEPTION during create_asset: {str(e)}")
 
     if not asset:
         unreal.log_error(f"Failed to load or create DataTable at {full_asset_path}")
+        print(f"Failed to load or create DataTable at {full_asset_path}")
         return
 
     # 3. Populate rows from JSON

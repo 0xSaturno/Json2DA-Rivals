@@ -100,12 +100,17 @@ def main(json_path):
     mi_asset = EditorUtilityLibrary.get_selected_assets()[0]
     full_name = mi_asset.get_full_name()
     asset_path = '/'.join(full_name.split(' ')[1].split('/')[:-1]) # full_name.split('.')[0]
-    asset_name =  full_name.split(' ')[1].split('/')[-1].split('.')[0]
-
+    import os
+    import json
+    with open(json_path.file_path, "r") as fp:
+        temp_buffer = json.load(fp)[0]
+    
+    asset_name = temp_buffer.get("Name", "")
+    if not asset_name:
+        asset_name = os.path.splitext(os.path.basename(json_path.file_path))[0]
     print("Running generic_tekken8_importer import with JSON path = "+ json_path.file_path + ", asset_name="+asset_name+", asset_path="+asset_path)
 
     generic_tekken8_importer(json_path.file_path, asset_name, asset_path)
-    unreal.EditorAssetLibrary.save_loaded_asset(mi_asset, False)
 
 
 '''
